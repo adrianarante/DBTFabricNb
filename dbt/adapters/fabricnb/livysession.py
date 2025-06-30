@@ -15,17 +15,20 @@ from dbt.events import AdapterLogger
 from dbt.utils import DECIMALS
 from azure.core.credentials import AccessToken
 from azure.identity import AzureCliCredential, ClientSecretCredential
-from dbt.adapters.fabricspark.fabric_spark_credentials import SparkCredentials
+
+# Replaced with this notebook's own credentials
+# from dbt.adapters.fabricnb.fabric_spark_credentials import SparkCredentials
+from credentials import FabricCredentials
+
 import nbformat as nbf
 from pathlib import Path
 import dbt.adapters
-import dbt.adapters.fabricsparknb
-import dbt.adapters.fabricsparknb.notebook
+import dbt.adapters.fabricnb
 
 logger = AdapterLogger("fabricsparknb")
 NUMBERS = DECIMALS + (int, float)
 
-livysession_credentials: SparkCredentials
+livysession_credentials: FabricCredentials
 
 DEFAULT_POLL_WAIT = 45
 DEFAULT_POLL_STATEMENT_WAIT = 5
@@ -50,7 +53,7 @@ def is_token_refresh_necessary(unixTimestamp: int) -> bool:
         return False
 
 
-def get_cli_access_token(credentials: SparkCredentials) -> AccessToken:
+def get_cli_access_token(credentials: FabricCredentials) -> AccessToken:
     """
     Get an Azure access token using the CLI credentials
 
@@ -76,7 +79,7 @@ def get_cli_access_token(credentials: SparkCredentials) -> AccessToken:
     return accessToken
 
 
-def get_sp_access_token(credentials: SparkCredentials) -> AccessToken:
+def get_sp_access_token(credentials: FabricCredentials) -> AccessToken:
     """
     Get an Azure access token using the SP credentials.
 
@@ -97,7 +100,7 @@ def get_sp_access_token(credentials: SparkCredentials) -> AccessToken:
     return accessToken
 
 
-def get_headers(credentials: SparkCredentials, tokenPrint: bool = False) -> dict[str, str]:
+def get_headers(credentials: FabricCredentials, tokenPrint: bool = False) -> dict[str, str]:
     global accessToken
     if accessToken is None or is_token_refresh_necessary(accessToken.expires_on):
         if credentials.authentication and credentials.authentication.lower() == "cli":
@@ -115,7 +118,7 @@ def get_headers(credentials: SparkCredentials, tokenPrint: bool = False) -> dict
 
 
 class LivySession:
-    def __init__(self, credentials: SparkCredentials):
+    def __init__(self, credentials: FabricCredentials):
         self.credential = credentials
         self.connect_url = credentials.lakehouse_endpoint
         self.session_id = None
@@ -463,6 +466,7 @@ class LivyCursor:
         else:
             node_type = 'model'
 
+        # TODO fix this once functionality has been implemented. Why the heck do we access it this way?
         mnb: dbt.adapters.fabricsparknb.notebook.ModelNotebook = dbt.adapters.fabricsparknb.notebook.ModelNotebook(nb=nb, node_type=node_type)
         # ssc = mnb.GetSparkSqlCells()
 
@@ -474,18 +478,20 @@ class LivyCursor:
         # Join the lines back together
         remainder_without_blank_lines = '\n'.join(non_blank_lines)
         code = f"%%sql\n{remainder_without_blank_lines}"
-        cell = nbf.v4.new_code_cell(source=code)
+        # cell = nbf.v4.new_code_cell(source=code)
 
         # Add the cell to the notebook
-        mnb.AddCell(cell)
+        # mnb.AddCell(cell)
         # mnb.GatherSql()
         # mnb.SetTheSqlVariable()
 
         # Write the notebook to a file
         with io.open(file=filename, mode='w', encoding='utf-8') as f:
             try:
-                nb_str = nbf.writes(mnb.nb)
-                f.write(nb_str)
+                # nb_str = nbf.writes(mnb.nb)
+                # NOTE: I did this since we might be opting to just SQLs since
+                # this is just fabric thingy
+                f.write(code)
             except Exception as ex:
                 print("Error writing notebook file")
                 raise ex
@@ -557,7 +563,7 @@ class LivyConnection:
     """
 
     def __init__(self, credentials, livy_session) -> None:
-        self.credential: SparkCredentials = credentials
+        self.credential: FabricCredentials = credentials
         self.connect_url = credentials.lakehouse_endpoint
         self.session_id = livy_session.session_id
         self.livy_session_parameters = credentials.livy_session_parameters
@@ -610,7 +616,7 @@ class LivySessionManager:
     livy_global_session = None
 
     @staticmethod
-    def connect(credentials: SparkCredentials) -> LivyConnection:
+    def connect(credentials: FabricCredentials) -> LivyConnection:
         # the following opens an spark / sql session
         data = {"kind": "sql", "conf": credentials.livy_session_parameters}  # 'spark'
         if __class__.livy_global_session is None:
@@ -632,9 +638,9 @@ class LivySessionManager:
     @staticmethod
     def disconnect() -> None:
         return
-        if __class__.livy_global_session.is_valid_session():
-            __class__.livy_global_session.delete_session()
-            __class__.livy_global_session.is_new_session_required = True
+        # if __class__.livy_global_session.is_valid_session():
+        #     __class__.livy_global_session.delete_session()
+        #     __class__.livy_global_session.is_new_session_required = True
 
 
 class LivySessionConnectionWrapper(object):
@@ -649,12 +655,14 @@ class LivySessionConnectionWrapper(object):
         return self
 
     def cancel(self) -> None:
+        # TODO: Implement cancel functionality
         logger.debug("NotImplemented: cancel")
 
     def close(self) -> None:
         self.handle.close()
 
     def rollback(self, *args, **kwargs):
+        # TODO: Implement rollback functionality
         logger.debug("NotImplemented: rollback")
 
     def fetchall(self):
